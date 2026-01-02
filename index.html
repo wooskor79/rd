@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>RD Manager | rd.wooskor.com</title>
+    <link rel="stylesheet" href="asset/style.css">
+</head>
+<body>
+    <div id="container">
+        <aside id="left">
+            <h2>Magnet / Torrent</h2>
+            <textarea id="magIn" placeholder="마그넷 링크를 입력하세요..."></textarea>
+            <button class="btn btn-purple" onclick="addMag()">RD 서버 전송</button>
+            
+            <div class="upload-box">
+                <p>.torrent 파일 업로드</p>
+                <input type="file" id="torFiles" multiple accept=".torrent">
+                <button class="btn btn-green" onclick="upTor()">파일 전송</button>
+            </div>
+        </aside>
+
+        <main id="right">
+            <h2>7일 히스토리 및 진행 현황</h2>
+            <div id="list">로딩 중...</div>
+        </main>
+    </div>
+    <script src="asset/script.js"></script>
+</body>
+</html>
