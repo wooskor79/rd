@@ -8,19 +8,28 @@
 <body>
     <div id="container">
         <aside id="left">
-            <h2>Magnet / Torrent</h2>
-            <textarea id="magIn" placeholder="마그넷 링크를 입력하세요..."></textarea>
-            <button class="btn btn-purple" onclick="addMag()">RD 서버 전송</button>
-            
-            <div class="upload-box">
-                <p>.torrent 파일 업로드</p>
-                <input type="file" id="torFiles" multiple accept=".torrent">
-                <button class="btn btn-green" onclick="upTor()">파일 전송</button>
+            <div class="left-top">
+                <h2>Magnet / Torrent</h2>
+                <textarea id="magIn" placeholder="마그넷 링크를 입력하세요..."></textarea>
+                <button class="btn btn-purple" onclick="addMag()">RD 서버 전송</button>
+                
+                <div class="upload-box">
+                    <p>.torrent 파일 업로드</p>
+                    <input type="file" id="torFiles" multiple accept=".torrent">
+                    <button class="btn btn-green" onclick="upTor()">파일 전송</button>
+                </div>
+            </div>
+
+            <div class="log-container">
+                <h3>📜 시스템 로그</h3>
+                <div id="logArea">
+                    <div class="log-entry">시스템 준비 완료...</div>
+                </div>
             </div>
         </aside>
 
         <main id="right">
-            <h2>7일 히스토리 및 진행 현황</h2>
+            <h2>진행 현황 및 히스토리</h2>
             <div id="list">로딩 중...</div>
         </main>
     </div>
