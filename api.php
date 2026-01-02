@@ -1,6 +1,8 @@
 <?php
-// 에러 확인을 위해 잠시 켜둠
-ini_set('display_errors', 1); 
+// =========================
+// 기본 설정
+// =========================
+ini_set('display_errors', 1); // 운영 시 0
 error_reporting(E_ALL);
 header('Content-Type: application/json; charset=utf-8');
 
@@ -9,105 +11,131 @@ function jsonExit($data) {
     exit;
 }
 
-// 1. .env 파일 로더
-$envPath = __DIR__ . '/.env';
-if (!file_exists($envPath)) jsonExit(['error' => '.env 파일이 없습니다.']);
+// =========================
+// .env 로드
+// =========================
+$envFile = __DIR__ . '/.env';
+if (!file_exists($envFile)) {
+    jsonExit(['error' => '.env 파일 없음']);
+}
 
-$lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 $env = [];
+$lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 foreach ($lines as $line) {
     if (strpos(trim($line), '#') === 0) continue;
-    $parts = explode('=', $line, 2);
-    if (count($parts) === 2) $env[trim($parts[0])] = trim($parts[1]);
+    if (!str_contains($line, '=')) continue;
+    [$k, $v] = explode('=', $line, 2);
+    $env[trim($k)] = trim($v);
 }
 
-// 2. DB 접속
-try {
-    $conn = new mysqli($env['DB_HOST'], $env['DB_USER'], $env['DB_PASS'], $env['DB_NAME'], (int)$env['DB_PORT']);
-    if ($conn->connect_error) throw new Exception("DB 접속 실패: " . $conn->connect_error);
-    $conn->set_charset("utf8mb4");
-} catch (Exception $e) {
-    // 연결 실패 시 JSON으로 에러 반환
-    jsonExit(['error' => $e->getMessage()]);
-}
-
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
-
-// 3. API 라우팅
-
-// (1) 목록 조회 (최근 7일)
-if ($action === 'list') {
-    $sql = "SELECT rd_id, alias, created_at FROM rd_history WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) ORDER BY created_at DESC";
-    $result = $conn->query($sql);
-    $list = [];
-    
-    if ($result) {
-        while ($row = $result->fetch_assoc()) {
-            // RD API 호출하여 실시간 정보 가져오기
-            $info = rd_api_call("torrents/info/" . $row['rd_id'], $env['RD_API_KEY']);
-            if ($info && !isset($info['error'])) {
-                $row['info'] = $info; // 진행률, 파일목록, 링크 등이 여기에 포함됨
-                $list[] = $row;
-            }
-        }
+// 필수 값 체크
+foreach (['RD_API_KEY','DB_HOST','DB_NAME','DB_USER','DB_PASS'] as $k) {
+    if (empty($env[$k])) {
+        jsonExit(['error' => "$k 값이 .env에 없음"]);
     }
-    jsonExit($list);
-} 
-
-// (2) 마그넷 추가
-elseif ($action === 'addMagnet' || isset($_GET['m'])) {
-    $magnet = $_GET['m'] ?? $_POST['magnet'] ?? '';
-    if ($magnet) {
-        $res = rd_api_call("torrents/addMagnet", $env['RD_API_KEY'], ["magnet" => $magnet], "POST");
-        if (isset($res['id'])) {
-            rd_api_call("torrents/selectFiles/{$res['id']}", $env['RD_API_KEY'], ["files" => "all"], "POST");
-            
-            // DB에 기록
-            $stmt = $conn->prepare("INSERT IGNORE INTO rd_history (rd_id) VALUES (?)");
-            $stmt->bind_param("s", $res['id']);
-            $stmt->execute();
-        }
-    }
-    if (isset($_GET['m'])) exit("<script>alert('RD 전송 성공'); window.close();</script>");
-    jsonExit(['status' => 'success']);
-} 
-
-// (3) 삭제
-elseif ($action === 'delete') {
-    $rd_id = $_POST['rd_id'] ?? '';
-    // RD에서 삭제
-    rd_api_call("torrents/delete/$rd_id", $env['RD_API_KEY'], [], "DELETE");
-    // DB에서 삭제
-    $conn->query("DELETE FROM rd_history WHERE rd_id = '" . $conn->real_escape_string($rd_id) . "'");
-    jsonExit(['status' => 'success']);
 }
 
-// (4) 별명(Alias) 업데이트 [새로 추가된 기능]
-elseif ($action === 'updateAlias') {
-    $rd_id = $_POST['rd_id'] ?? '';
-    $alias = $_POST['alias'] ?? '';
-    
-    $stmt = $conn->prepare("UPDATE rd_history SET alias = ? WHERE rd_id = ?");
-    $stmt->bind_param("ss", $alias, $rd_id);
-    $stmt->execute();
-    jsonExit(['status' => 'success']);
+// =========================
+// DB 연결
+// =========================
+$conn = new mysqli(
+    $env['DB_HOST'],
+    $env['DB_USER'],
+    $env['DB_PASS'],
+    $env['DB_NAME']
+);
+
+if ($conn->connect_error) {
+    jsonExit(['error' => 'DB 연결 실패: ' . $conn->connect_error]);
 }
 
-// RD API 통신 함수
+// =========================
+// Real-Debrid API 함수
+// =========================
 function rd_api_call($endpoint, $key, $data = [], $method = "GET") {
     $ch = curl_init("https://api.real-debrid.com/rest/1.0/$endpoint");
-    $headers = ["Authorization: Bearer $key"];
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            "Authorization: Bearer $key"
+        ],
+        CURLOPT_SSL_VERIFYPEER => false
+    ]);
+
     if ($method === "POST") {
-        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     } elseif ($method === "DELETE") {
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "DELETE");
     }
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
     $res = curl_exec($ch);
+    if ($res === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        return ['error' => $err];
+    }
+
     curl_close($ch);
     return json_decode($res, true);
 }
-?>
+
+// =========================
+// API 라우팅
+// =========================
+$action = $_GET['action'] ?? '';
+
+switch ($action) {
+
+    case 'list':
+        $res = rd_api_call("torrents", $env['RD_API_KEY']);
+        jsonExit($res);
+        break;
+
+    case 'add':
+        $magnet = $_POST['magnet'] ?? '';
+        if (!$magnet) jsonExit(['error' => 'magnet 없음']);
+
+        $res = rd_api_call(
+            "torrents/addMagnet",
+            $env['RD_API_KEY'],
+            ['magnet' => $magnet],
+            "POST"
+        );
+
+        if (!empty($res['id'])) {
+            rd_api_call(
+                "torrents/selectFiles/{$res['id']}",
+                $env['RD_API_KEY'],
+                ['files' => 'all'],
+                "POST"
+            );
+
+            $stmt = $conn->prepare(
+                "INSERT IGNORE INTO rd_history (rd_id) VALUES (?)"
+            );
+            $stmt->bind_param("s", $res['id']);
+            $stmt->execute();
+        }
+
+        jsonExit($res);
+        break;
+
+    case 'delete':
+        $id = $_POST['id'] ?? '';
+        if (!$id) jsonExit(['error' => 'id 없음']);
+
+        $res = rd_api_call(
+            "torrents/delete/$id",
+            $env['RD_API_KEY'],
+            [],
+            "DELETE"
+        );
+
+        jsonExit($res);
+        break;
+
+    default:
+        jsonExit(['error' => 'invalid action']);
+}
